@@ -3,10 +3,18 @@ import pyproj
 from pyproj import Transformer, CRS
 import os
 import tkintermapview
+import csv
+import re
 from tkintermapview import TkinterMapView
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+
+
+def dms2dd(dms):
+    degrees, minutes, seconds, direction = re.split('[°\'"]', dms)
+    dd = float(degrees) + float(minutes) / 60 + float(seconds) / 3600
+    return dd
 
 
 class Backend:
@@ -23,6 +31,7 @@ class Backend:
         self.tree_in_headers = ("Имя точки", "B", "L", "H")
         self.tree_out_headers = ("Имя точки", "X", "Y", "H")
         self.file_opened = False
+        self.current_path = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 
         # get custom CRS
         self.my_crs = "+init=system.crs:"
@@ -54,10 +63,9 @@ class Backend:
 
         map_widget = tkintermapview.TkinterMapView(map_window, width=800, height=600, corner_radius=0)
         map_widget.pack(fill="both", expand=True)
-        map_widget.fit_bounding_box((56,26), (54,32))
+        map_widget.fit_bounding_box((56, 26), (54, 32))
 
-        current_path = os.path.join(os.path.dirname(os.path.abspath(__file__)))
-        pin_1 = ImageTk.PhotoImage(Image.open(os.path.join(current_path, "images", "pin24.png")))
+        pin_1 = ImageTk.PhotoImage(Image.open(os.path.join(self.current_path, "images", "pin24.png")))
 
         for i in range(len(self.cs1_x)):
             marker = map_widget.set_marker(float(self.cs1_x[i]), float(self.cs1_y[i]),
@@ -73,26 +81,55 @@ class Backend:
         self.cs1_names = []
 
         file_path = filedialog.askopenfilename(initialdir="/", title="Выбор файла",
-                                               filetypes=(("BLH files", "*.BLH"),
+                                               filetypes=(("csv files", "*.csv"),
+                                                          ("BLH files", "*.BLH"),
                                                           ("txt files", "*.txt"),
                                                           ("all files", "*.*")))
         if file_path:
             self.file_opened = True
-            with open(file_path, "r") as f:
-                for line in f:
-                    if len(line.split()) == 4:
-                        name, x, y, z = line.split()
+            if file_path[-3::] == "csv":
+                with open(file_path, newline='') as f:
+                    csvreader = csv.reader(f, delimiter=',', quotechar=' ')
+                    for row in csvreader:
+                        line = ' '.join(row).split()
+                        if len(line) == 4:
+                            name, x, y, z = ' '.join(row).split()
+                        elif len(line) == 5:
+                            name, x, y, z, code = ' '.join(row).split()
+                        x = dms2dd(x)
+                        y = dms2dd(y)
+                        try:
+                            x == float(x) and y == float(y) and z == float(z)
+                        except ValueError:
+                            messagebox.showerror("Ошибка!", "Неверный формат")
+                            break
                         point = (name, x, y, z)
                         self.cs1_points.append(point)
-
                         self.cs1_x.append(x)
                         self.cs1_y.append(y)
                         self.cs1_z.append(z)
-
                         self.cs1_names.append(name)
-                    else:
-                        messagebox.showerror("Ошибка!", "Неверный формат")
-                        break
+            else:
+                with open(file_path, "r") as f:
+                    for line in f:
+                        if len(line.split()) == 4:
+                            name, x, y, z = line.split()
+                            try:
+                                x == float(x) and y == float(y) and z == float(z)
+                            except ValueError:
+                                messagebox.showerror("Ошибка!", "Неверный формат")
+                                break
+                            point = (name, x, y, z)
+                            self.cs1_points.append(point)
+
+                            self.cs1_x.append(x)
+                            self.cs1_y.append(y)
+                            self.cs1_z.append(z)
+
+                            self.cs1_names.append(name)
+                        else:
+                            messagebox.showerror("Ошибка!", "Неверный формат")
+                            break
             f.close()
             if self.file_opened:
                 frontend.fill_tree_in()
@@ -101,15 +138,15 @@ class Backend:
     # selected option
     def set_selected_option(self, option):
         self.selected_option = option
-        print(f"Выбранная опция: {self.selected_option}")
+        # print(f"Выбранная опция: {self.selected_option}")
         for i in range(len(self.cs_name)):
             if self.selected_option == self.cs_name[i]:
                 self.selected_cs_espg = self.cs_epsg[i]
-                print(f"Выбрана: {self.cs_epsg[i]}")
+                # print(f"Выбран код: {self.cs_epsg[i]}")
                 self.cs_out = self.my_crs + self.cs_epsg[i]
                 break
             i += 1
-        print(self.cs_out)
+        # print(self.cs_out)
 
     # save file
     def save_file(self):
@@ -118,14 +155,14 @@ class Backend:
                                                  filetypes=(("txt files", "*.txt"),
                                                             ("all files", "*.*")))
         if file_path:
-            with open(file_path+".txt", "w") as f:
+            with open(file_path + ".txt", "w") as f:
                 for tup in self.cs2_cords:
                     f.write(" ".join(tup) + "\n")
             f.close()
-            print(f"Файл {file_path} сохранён")
+            # print(f"Файл {file_path} сохранён")
             messagebox.showinfo("Сохранение файла", f"Файл {file_path} успешно сохранён.")
         else:
-            print("Файл не удалось сохранить")
+            # print("Файл не удалось сохранить")
             messagebox.showerror("Сохранение файла", "Не удалось сохранить файл.")
 
     # transformation
@@ -139,7 +176,7 @@ class Backend:
                 y, x, h = transformer_3d.transform(self.cs1_x[i], self.cs1_y[i], self.cs1_z[i])
                 str_out = make_tuple(str((self.cs1_names[i], "%.3f" % x, "%.3f" % y, "%.3f" % h)))
                 self.cs2_cords.append(str_out)
-            print('Трансформировано успешно')
+            # print('Трансформировано успешно')
             return self.cs2_cords
         else:
             messagebox.showerror("Ошибка", "Исходные данные не найдены!")
@@ -204,6 +241,8 @@ class Frontend:
         self.tree_out.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # root
+        self.root_icon = ImageTk.PhotoImage(Image.open(os.path.join(backend.current_path, "images", "transform.png")))
+        self.root.iconphoto(False, self.root_icon)
         self.root.resizable(False, False)
         self.root.mainloop()
 
